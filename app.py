@@ -148,10 +148,18 @@ if not df_master.empty:
         calc_clean = str(calc_type).replace(" ", "")
         item_clean = str(item_name).replace(" ", "")
         
+        # [신규 예외 처리] 케이블_외 품목은 무조건 기본 1식(수량 1.0) 고정
+        if "케이블_외" in item_clean or "케이블외" in item_clean:
+            return 1.0
+
         if "MAIN_OPB" in item_clean:
             return 1.0
 
-        if "SUB_OPB" in item_clean or "CPI" in item_clean:
+        # [로직 변경] CPI 수량: 관통이면 2개, 일방이면 1개 고정
+        if "CPI" in item_clean:
+            return 2.0 if gate_type == "관통" else 1.0
+
+        if "SUB_OPB" in item_clean:
             if gate_type == "일방": 
                 return 0.0
             return 1.0
@@ -232,6 +240,17 @@ if not df_master.empty:
             best_fallback_row = None
             min_score = float('inf')
             status_text = "정상"
+            # 💡 [여기서부터 수정] CPI 예외 로직 추가
+            is_cpi_item = "CPI" in str(item).replace(" ", "").upper()
+            
+            for _, row in df_item.iterrows():
+                # CPI는 다른 사양 검사 없이 즉시 통과
+                if is_cpi_item:
+                    matched_row = row
+                    is_perfect_match = True
+                    status_text = "정상"
+                    break
+                # 💡 [수정 여기까지]
             
             for _, row in df_item.iterrows():
                 perfect = True
@@ -253,7 +272,7 @@ if not df_master.empty:
                 if "가이드" in row and pd.notna(row["가이드"]) and str(row["가이드"]).strip() not in ["", "nan"]:
                     if str(row["가이드"]).strip() != spec_가이드: perfect = False
                 
-                if any(opb in str(item) for opb in ["OPB", "MAIN", "SUB", "장애인"]):
+                if any(opb in str(item) for opb in ["OPB", "MAIN", "SUB", "장애인", "CPI"]):
                     if not match_floor_range_from_vigo(row_vigo, stop_input):
                         perfect = False
                         
@@ -278,7 +297,7 @@ if not df_master.empty:
                     if "웨이트" in str(item).replace(" ", ""):
                         if type_input not in row_all_text: score += 20000
                     
-                    if any(opb in str(item) for opb in ["OPB", "MAIN", "SUB", "장애인"]):
+                    if any(opb in str(item) for opb in ["OPB", "MAIN", "SUB", "장애인", "CPI"]):
                         if not match_floor_range_from_vigo(row_vigo, stop_input): score += 15000
 
                     if target_panel_col and target_panel_col in row and pd.notna(row[target_panel_col]) and str(row[target_panel_col]).strip() not in ["", "nan"]:
@@ -355,15 +374,19 @@ if not df_master.empty:
                 if excel_vigo in ["nan", "None"]: excel_vigo = ""
                 
                 item_noclean = str(item).replace(" ", "")
-                if "MAIN_OPB" in item_noclean:
+                
+                # 비고 설명란 갱신
+                if "케이블_외" in item_noclean or "케이블외" in item_noclean:
+                    excel_vigo = f"[사양 강제 고정] 기본(1식) 반영 수량 1 고정 ({excel_vigo})".strip()
+                elif "MAIN_OPB" in item_noclean:
                     excel_vigo = f"[{stop_input} STOP 구간 단가 매칭] 수량 1대 고정 ({excel_vigo})".strip()
+                elif "CPI" in item_noclean:
+                    excel_vigo = f"[{type_input} 사양 반영] 수량 {int(qty)}대 자동 연동 ({excel_vigo})".strip()
                 elif "SUB_OPB" in item_noclean:
                     if type_input == "일방":
                         excel_vigo = f"[일방 사양 반영] 수량 0 대 표기 ({excel_vigo})".strip()
                     else:
                         excel_vigo = f"[관통 사양 반영] [{stop_input} STOP 구간 단가 매칭] ({excel_vigo})".strip()
-                elif "CPI" in item_noclean and type_input == "일방":
-                    excel_vigo = f"[일방 사양 반영] 수량 0 대 표기 ({excel_vigo})".strip()
                 elif "장애인용_OPB" in item_noclean:
                     excel_vigo = f"[{stop_input} STOP 구간 단가 매칭] 카 내 1대 고정 ({excel_vigo})".strip()
                 elif "웨이트" in item_noclean:
@@ -397,7 +420,7 @@ if not df_master.empty:
                     "상태": status_text,
                     "품목명": item,
                     "제품명": prod_name,
-                    "계산방식": "고정 수식" if any(x in item_noclean for x in ["가이드레일", "조인트", "와이어", "OPB", "장애인용"]) else calc_type,
+                    "계산방식": "기본(1식)" if "케이블" in item_noclean else ("고정 수식" if any(x in item_noclean for x in ["가이드레일", "조인트", "와이어", "OPB", "장애인용", "CPI"]) else calc_type),
                     "계산수량": qty,
                     "단가(원)": unit_price,
                     "합계금액(원)": total_price,
