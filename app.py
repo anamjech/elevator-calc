@@ -442,7 +442,7 @@ if not df_master.empty:
                 })
         
         if bom_results:
-            st.subheader("📋 선택 사양 기준 자재 내역서 (BOM)")
+            st.subheader("📋 선택 사양 기준 자재 내역")
             df_display = pd.DataFrame(bom_results)
             
             def style_rows(row):
